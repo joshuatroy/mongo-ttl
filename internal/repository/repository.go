@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	uuid "github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/bsonx"
 
 	"mongo-ttl/internal/domain"
@@ -44,15 +46,16 @@ func NewRepository(ctx context.Context, collection *mongo.Collection, ttl int32)
 }
 
 func (r Repository) ensureIndexes(ctx context.Context) error {
-	index := mongo.IndexModel{
-		Keys: bsonx.Doc{
-			{
-				Key:   "timestamp",
-				Value: bsonx.Int64(1),
-			},
+	_, err := r.collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys:    bsonx.Doc{{Key: "id", Value: bsonx.Int64(1)}},
+			Options: options.Index().SetUnique(true),
 		},
-	}
-	_, err := r.collection.Indexes().CreateOne(ctx, index)
+		{
+			Keys:    bsonx.Doc{{Key: "timestamp", Value: bsonx.Int64(1)}},
+			Options: options.Index().SetExpireAfterSeconds(r.ttl),
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -63,7 +66,7 @@ func (r Repository) ensureIndexes(ctx context.Context) error {
 func (r Repository) StoreRecord(ctx context.Context, record domain.Record) error {
 	_, err := r.collection.InsertOne(ctx, Record{
 		ID:        record.ID,
-		Timestamp: primitive.NewDateTimeFromTime(record.Timestamp),
+		Timestamp: primitive.NewDateTimeFromTime(record.Timestamp.UTC().Truncate(time.Millisecond)),
 	})
 	if err != nil {
 		if IsDuplicateKeyException(err) {
@@ -84,7 +87,7 @@ func (r Repository) GetRecord(ctx context.Context, recordID uuid.UUID) (domain.R
 
 	return domain.Record{
 		ID:        rec.ID,
-		Timestamp: rec.Timestamp.Time(),
+		Timestamp: rec.Timestamp.Time().UTC(),
 	}, nil
 }
 
