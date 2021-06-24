@@ -2,7 +2,6 @@ package repository_test
 
 import (
 	"context"
-	"mongo-ttl/internal/domain"
 	"mongo-ttl/internal/repository"
 	"testing"
 	"time"
@@ -10,6 +9,7 @@ import (
 	uuid "github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -18,12 +18,12 @@ func TestRepository_StoreRecord(t *testing.T) {
 	t.Run("should store a record", func(t *testing.T) {
 		ctx := context.Background()
 		collection := setupDB(t, ctx)
-		someRecord := domain.Record{
+		someRecord := repository.Record{
 			ID:        uuid.New(),
-			Timestamp: time.Now(),
+			Timestamp: primitive.NewDateTimeFromTime(time.Now().UTC()),
 		}
 
-		repo, err := repository.NewRepository(ctx, collection, 700)
+		repo, err := repository.NewRepository(ctx, collection, 60)
 		require.NoError(t, err)
 
 		err = repo.StoreRecord(ctx, someRecord)
@@ -31,20 +31,18 @@ func TestRepository_StoreRecord(t *testing.T) {
 
 		record, err := repo.GetRecord(ctx, someRecord.ID)
 		require.NoError(t, err)
-
-		assert.Equal(t, someRecord.ID, record.ID)
-		assert.Equal(t, someRecord.Timestamp.UTC().Truncate(time.Millisecond), record.Timestamp)
+		assert.Equal(t, someRecord, record)
 	})
 
 	t.Run("should return a duplicate error if we try to insert the same record", func(t *testing.T) {
 		ctx := context.Background()
 		collection := setupDB(t, ctx)
-		someRecord := domain.Record{
+		someRecord := repository.Record{
 			ID:        uuid.New(),
-			Timestamp: time.Now(),
+			Timestamp: primitive.NewDateTimeFromTime(time.Now().UTC()),
 		}
 
-		repo, err := repository.NewRepository(ctx, collection, 700)
+		repo, err := repository.NewRepository(ctx, collection, 60)
 		require.NoError(t, err)
 
 		err = repo.StoreRecord(ctx, someRecord)
@@ -56,9 +54,38 @@ func TestRepository_StoreRecord(t *testing.T) {
 }
 
 func TestRepository_GetRecord(t *testing.T) {
-	t.Run("should get a record", func(t *testing.T) {})
+	t.Run("should get a record", func(t *testing.T) {
+		ctx := context.Background()
+		collection := setupDB(t, ctx)
+		//defer collection.Drop(ctx)
 
-	t.Run("should return a error finding record if it doesn't exist", func(t *testing.T) {})
+		someRecord := repository.Record{
+			ID:        uuid.New(),
+			Timestamp: primitive.NewDateTimeFromTime(time.Now().UTC()),
+		}
+
+		repo, err := repository.NewRepository(ctx, collection, 60)
+		require.NoError(t, err)
+
+		err = repo.StoreRecord(ctx, someRecord)
+		require.NoError(t, err)
+
+		record, err := repo.GetRecord(ctx, someRecord.ID)
+		require.NoError(t, err)
+		assert.Equal(t, someRecord, record)
+	})
+
+	t.Run("should return a error finding record if it doesn't exist", func(t *testing.T) {
+		ctx := context.Background()
+		collection := setupDB(t, ctx)
+
+		repo, err := repository.NewRepository(ctx, collection, 60)
+		require.NoError(t, err)
+
+		record, err := repo.GetRecord(ctx, uuid.New())
+		require.ErrorIs(t, err, repository.ErrFindingRecord)
+		assert.Zero(t, record)
+	})
 }
 
 func setupDB(t *testing.T, ctx context.Context) *mongo.Collection {
@@ -66,5 +93,6 @@ func setupDB(t *testing.T, ctx context.Context) *mongo.Collection {
 	if err != nil {
 		require.NoError(t, err)
 	}
+
 	return client.Database("ttl").Collection("records")
 }

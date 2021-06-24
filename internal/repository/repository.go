@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	uuid "github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
@@ -12,8 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/bsonx"
-
-	"mongo-ttl/internal/domain"
 )
 
 var (
@@ -32,7 +29,6 @@ type Record struct {
 	Timestamp primitive.DateTime `bson:"timestamp"`
 }
 
-// NewRepository func
 func NewRepository(ctx context.Context, collection *mongo.Collection, ttl int32) (Repository, error) {
 	r := Repository{
 		collection: collection,
@@ -63,11 +59,8 @@ func (r Repository) ensureIndexes(ctx context.Context) error {
 	return nil
 }
 
-func (r Repository) StoreRecord(ctx context.Context, record domain.Record) error {
-	_, err := r.collection.InsertOne(ctx, Record{
-		ID:        record.ID,
-		Timestamp: primitive.NewDateTimeFromTime(record.Timestamp.UTC().Truncate(time.Millisecond)),
-	})
+func (r Repository) StoreRecord(ctx context.Context, record Record) error {
+	_, err := r.collection.InsertOne(ctx, record)
 	if err != nil {
 		if IsDuplicateKeyException(err) {
 			return fmt.Errorf("%w: %v", ErrDuplicateRecord, err)
@@ -78,17 +71,14 @@ func (r Repository) StoreRecord(ctx context.Context, record domain.Record) error
 	return nil
 }
 
-func (r Repository) GetRecord(ctx context.Context, recordID uuid.UUID) (domain.Record, error) {
+func (r Repository) GetRecord(ctx context.Context, recordID uuid.UUID) (Record, error) {
 	filter := bson.D{primitive.E{Key: "id", Value: recordID}}
-	var rec Record
-	if err := r.collection.FindOne(ctx, filter).Decode(&rec); err != nil {
-		return domain.Record{}, fmt.Errorf("%w: %v", ErrFindingRecord, err)
+	var record Record
+	if err := r.collection.FindOne(ctx, filter).Decode(&record); err != nil {
+		return Record{}, fmt.Errorf("%w: %v", ErrFindingRecord, err)
 	}
 
-	return domain.Record{
-		ID:        rec.ID,
-		Timestamp: rec.Timestamp.Time().UTC(),
-	}, nil
+	return record, nil
 }
 
 func IsDuplicateKeyException(err error) bool {
